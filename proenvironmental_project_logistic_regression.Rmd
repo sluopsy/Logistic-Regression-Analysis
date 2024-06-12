@@ -1,0 +1,447 @@
+---
+title: "Logistic Regression Analysis"
+subtitle: "Pro-environmental Project"
+output:
+  html_document:
+    theme: spacelab
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  word_document:
+    toc: yes
+    toc_depth: '3'
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Project Summary {.tabset .tabset-pill}
+
+## Overall
+
+* Masses of people today are living lifestyles abundant in consumption, and this consumption drives greenhouse gas emissions, which ultimately drive the planet towards becoming a more inhospitable place to live (Hoekstra & Wiedmann, 2014; IPCC & Edenhofer, 2014; Ripple et al., 2020). This suggests a need for the development of effective climate-mitigation strategies that address widespread consumption habits. 
+
+* For this project, I developed and tested the effectiveness of two psychological intervention techniques aimed at increasing people's engagement in pro-environmental consumer behaviors. For this study, the pro-environmental consumer behavior was choosing to a gift card to spend on secondhand clothing instead of a gift card to spend on new clothing. The psychological intervention techniques included 1) a framing intervention, and 2) a norm intervention.
+
+## Framing Intervention
+
+* The framing intervention was used to frame the pro-environmental consumer behavior, reducing one's clothing consumption, as helping the participant to pursue either 1) pro-environmental goals, or 2) self-interested goals. 
+
+* Participants were randomly assigned to one of three framing conditions, including:
+
+  + **Control**: No framing information provided
+  + **Pro-Environmental Framing**: Adoption of the pro-environmental behavior was described as helping the individual pursue pro-environmental goals
+  + **Self-Enhancing Framing**: Adoption of the pro-environmental behavior was described as helping the individual pursue self-interested goals 
+
+
+## Norm Intervention
+
+* Norm interventions work by altering people’s perception of the norms that are endorsed by the people around them. Norms are an effective intervention tool because people are prone toward adapting their behavior to match what they believe others in their group see as normal, effective, or desired ways of behaving. 
+
+* Directly following the framing intervention, participants were randomly assigned to read one of the five norm intervention conditions:
+
+  + **Control**: No normative information provided)
+  + **Convention**: Adopting this behavior helps to achieve common group goals
+  + **Descriptive Norm**: Many people around you are adopting this behavior
+  + **Social Norm**: Many people around you believe that people *should* adopt this behavior
+  + **Moral Norm**: Many people around you believe that it is morally righteous to adopt this behavior
+
+
+## Additional Measures
+
+* In addition to the two key experimental interventions, participants were measured on several covariates that were controlled for in the model, including:
+
+  + **Biospheric Values**: An appreciation for the natural environment and a desire to protect it
+  + **Egoistic Values**: Concern with achieving greater resources for oneself
+  + **Ingroup Identification**: Feeling like one belongs to the reference group, which, for this study, was other University of Oregon students
+  + **Interest in Clothing**: General interest in and fascination with clothing
+
+```{r libraries, message = FALSE, warning = FALSE, results = 'hide'}
+library(rio) # for importing data
+library(tidyverse) # for tidyverse tools
+library(psych) # for descriptive statistics
+library(readr) # for exporting csv files
+library(naniar) # for visualizing missingness & MCAR test
+library(sjPlot) # for summary output table
+library(effectsize) # for effect size measures
+library(lsr) # for etaSquared
+library(broom) # for regression diagnostics
+library(olsrr) # for outlier diagnostics
+library(emmeans) # for estimated marginal means
+library(papaja) # for APA tables
+```
+
+
+# Importing Data {.tabset .tabset-pill}
+
+## Import Data
+```{r}
+data <- import("proenv_clean_data.csv")
+```
+
+## Check Measure Types
+
+```{r inspect measure types, results = 'hide'}
+str(data, list.len = ncol(data))
+```
+
+## Transform Measure Types
+
+```{r transform measure types, warning=FALSE}
+data <- data %>%
+  mutate(ID = as.factor(id),
+         consumer_behaviors = as.factor(consumer_behaviors),
+         framing_condition = as.factor(framing_condition),
+         norm_condition = as.factor(norm_condition),
+         Gender = as.factor(Gender),
+         Class_Lvl = as.factor(Class_Lvl),
+         Employment = as.factor(Employment),
+         Parents_Education = as.factor(Parents_Education),
+         Pol_Ornt = factor(Pol_Ornt, labels = c("Very liberal", "Somewhat liberal", "Slightly liberal", "Neither liberal nor conservative", "Slightly conservative", "Somewhat conservative", "Very conservative", "Other")),
+         Ethnicity = as.factor(Ethnicity))
+```
+
+## Subset Key Variables
+```{r}
+data <- data %>%
+  dplyr::select(id, framing_condition, norm_condition, biospheric, egoistic, clothing_interest, ingroup_identification, consumer_intentions, consumer_behaviors, Age, Gender)
+```
+
+## Recode Consumer Behaviors
+```{r}
+data <- data %>%
+  mutate(consumer_behaviors = ifelse(consumer_behaviors == 1,0,1))
+```
+
+
+
+# Center Continuous Covariates {.tabset .tabset-pill}
+
+* Mean centering continuous variables prior to entering them in the model
+  + Creates a meaningful y-intercept, and
+  + Reduces multicollinearity if any continuous by continuous interaction effects are included. 
+
+## Biospheric Values
+```{r center covariates}
+data$biospheric_center <- data$biospheric - mean(data$biospheric, na.rm = TRUE)
+```
+
+## Egoistic Values
+```{r}
+data$egoistic_center <- data$egoistic - mean(data$egoistic, na.rm = TRUE)
+```
+
+## Ingroup Identification
+```{r}
+data$ingroup_identification_center <- data$ingroup_identification - mean(data$ingroup_identification, na.rm = TRUE)
+```
+
+## Interest in Clothing
+```{r}
+data$clothing_interest_center <- data$clothing_interest - mean(data$clothing_interest, na.rm = TRUE)
+```
+
+## Age
+```{r}
+data$Age_center <- data$Age - mean(data$Age, na.rm = TRUE)
+```
+
+
+# Contrast Coding Factors {.tabset .tabset-pill}
+
+* Contrast coding the factors included in the regression analysis.
+  + Contrast codes ensures that factors are orthogonal, and 
+  + Produces easily interpretable regression coefficients
+
+## Framing Condition
+```{r contrast coding 1}
+FrameCode1 <- c(-1/2, 0, 1/2) # control vs self-enhancing
+FrameCode2 <- c(-1/3, 2/3, -1/3) # arbitrary code
+
+contrasts(data$framing_condition) <- cbind(FrameCode1, FrameCode2)
+contrasts(data$framing_condition)
+```
+
+## Norm Condition
+```{r}
+contrasts(data$norm_condition) <- contr.helmert(5)
+contrasts(data$norm_condition) # control vs DN
+```
+
+## Gender
+```{r}
+contrasts(data$Gender) <- contr.helmert(5)
+contrasts(data$Gender)
+```
+
+
+
+# Fitting Model
+
+* Consumer Behaviors:
+  + 0 = New Clothing
+  + 1 = Secondhand Clothing (Pro-Environmental Option)
+
+```{r full model consumer intentions}
+log_model <- glm(consumer_behaviors ~ framing_condition*norm_condition + biospheric_center + egoistic_center + ingroup_identification_center + clothing_interest_center + Gender + Age_center, data = data, family = "binomial", na.action = na.omit)
+```
+
+
+
+# Checking Model Assumptions {.tabset .tabset-pill}
+
+## Linearity
+
+* Logistic regression assumes a linear relationship exists between the predictor(s) and the logit of the outcome.
+
+Construct data frame with numeric predictors and logit of the outcome
+```{r}
+probabilities <- predict(log_model, type = "response")
+
+data_subset <- data %>%
+  dplyr::select(c("consumer_behaviors","biospheric_center","egoistic_center","ingroup_identification_center","clothing_interest_center","Age_center"))
+
+data_subset <- data_subset[complete.cases(data_subset),]
+nrow(data_subset)
+
+linear_check <- data_subset %>%
+  dplyr::select(-consumer_behaviors)
+
+linear_check <- linear_check %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+```
+
+Visualization of the relationship between predictors and logit of the outcome
+```{r}
+ggplot(linear_check, aes(logit, predictor.value)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") +
+  theme_bw() +
+  facet_wrap(~predictors, scales = "free_y")
+```
+
+
+## Independent Residuals
+
+```{r}
+# storing residuals
+regr_diags <- augment(log_model)
+
+# Plot residuals by row number
+ggplot(data = regr_diags, aes(x = .rownames, y = .resid)) + 
+  geom_point() +  
+  geom_smooth(se = F) +
+  geom_hline(yintercept = 0)
+```
+
+* There does not appear to be any unexpected relationship between an arbitrary measure, like row number, and the model's residuals.
+
+## Multivariate Outliers
+
+```{r}
+plot(log_model, which = 4, id.n = 3)
+
+# storing residuals
+model_resids <- augment(log_model)
+
+# calculating cooks d
+cooks_d <- model_resids %>% 
+  dplyr::select(.rownames, .cooksd) %>%
+  arrange(desc(abs(.cooksd)))
+
+print(cooks_d, n = 10)
+```
+
+* The participant on row 694 appears to be a potential outlier worth further examination.
+
+```{r}
+potential_outlier <- model_resids %>%
+  filter(.rownames == 694)
+```
+
+* Their values on all other measures are well within expected ranges so they will be kept in the analysis. 
+
+
+## Multicollinearity
+
+```{r}
+car::vif(log_model)
+```
+
+* Either a *low* tolerance (below 0.20) or a *high* VIF (above 5) is an indication of a problem with multicollinearity.     
+  + Multicollinearity does not appear to be an issue for the current model.
+
+
+
+# Model Output {.tabset .tabset-pill}
+
+## Summary Table
+```{r summary output}
+tab_model(log_model, show.se = TRUE, show.fstat = TRUE)
+```
+
+## ANOVA Table
+```{r anova table consumer intentions}
+anova(log_model) %>%
+  knitr::kable(digits = 2, col.names = c("Predictor", "df", "Deviance", "Residual df", "Residual Deviance"))
+```
+
+
+
+# Main Effect of Framing Condition {.tabset .tabset-pill}
+
+## Visualization
+
+```{r echo = FALSE}
+text_settings <- 
+  theme(plot.title = element_text(size = 12, face = 'bold')) +
+  theme(plot.subtitle = element_text(size = 8)) +
+  theme(axis.title.x = element_text(size = 10, face = 'bold')) +
+  theme(axis.title.y = element_text(size = 10, face = 'bold')) +
+  theme(axis.text.x = element_text(size = 9)) +
+  theme(axis.text.y = element_text(size = 10)) + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+
+```{r message = FALSE, echo = FALSE}
+emmip(log_model, ~ framing_condition,
+      regrid = "response",
+      xlab = "Framing Condition",
+      ylab = "Probability of Pro-Environmental Consumer Behavior",
+      col = "darkviolet",
+      CIs = TRUE, 
+      CIarg = list(lwd = 1.2, alpha = 0.2)) +
+  theme_classic() +
+  text_settings
+```
+
+## Adjusted Probabilities
+
+```{r message = FALSE}
+# Probabilities
+frame_probs <- emmeans(log_model, pairwise ~ framing_condition, adjust = "none", regrid = "response")
+
+frame_probs$emmeans %>%
+  knitr::kable(digits = 2)
+
+frame_probs$contrasts %>%
+  knitr::kable(digits = c(NA,2,2,2,2,3))
+```
+
+
+
+
+## Notes
+
+* The probability of choosing to engage in a pro-environmental behavior was significantly higher when participants were presented with a pro-environmental framing (prob = 0.60) compared to no framing (prob = 0.48), *z* = -2.88, *p* = .004.
+
+* The probability of choosing to engage in a pro-environmental behavior was also descriptively, but not significantly, higher when participants were presented with a pro-environmental framing than a self-enhancing framing, (prob = 0.53), *z* = 1.87, *p* = .062.
+
+
+# Main Effect of Norm Condition {.tabset .tabset-pill}
+
+
+## Visualization
+```{r message = FALSE, echo = FALSE}
+emmip(log_model, ~ norm_condition,
+      regrid = "response",
+      xlab = "Norm Condition",
+      ylab = "Probability of Pro-Environmental Consumer Behavior",
+      col = "blue",
+      CIs = TRUE, 
+      CIarg = list(lwd = 1.2, alpha = 0.2)) +
+  theme_classic() +
+  text_settings
+```
+
+
+## Adjusted Probabilities
+```{r}
+norm_probs <- emmeans(log_model, pairwise ~ norm_condition, adjust = "none", regrid = "response")
+
+norm_probs$emmeans %>%
+  knitr::kable(digits = 2)
+
+norm_probs$contrasts %>%
+  knitr::kable(digits = c(NA,2,2,2,2,3))
+```
+
+
+## Notes
+
+* The probability of choosing to engage in a pro-environmental behavior was similar across all norm intervention conditions (0.53 < prob < 0.56), although it was lowest in the control condition (prob = 0.50). 
+
+
+# Framing by Norm Interaction Effect {.tabset .tabset-pill}
+
+
+## Visualization
+```{r echo = FALSE}
+emmip(log_model, framing_condition ~ norm_condition,
+      regrid = "response",
+      xlab = "Norm Condition",
+      ylab = "Probability of Pro-Environmental Consumer Behavior",
+      CIs = TRUE, 
+      CIarg = list(lwd = 1.2, alpha = 0.2)) +
+  theme_classic() +
+  text_settings +
+  scale_colour_discrete(name = "Framing Condition")
+```
+
+## Adjusted Means
+```{r}
+cell_probs <- emmeans(log_model, pairwise ~ norm_condition | framing_condition, adjust = "none", regrid = "response")
+
+cell_probs$emmeans %>%
+  knitr::kable(digits = 2)
+```
+
+
+## Notes
+
+
+
+
+# Main Effect of Biospheric Values {.tabset .tabset-pill}
+
+## Visualization
+
+```{r warning = FALSE, echo = FALSE}
+ggplot(data, aes(x = biospheric_center, y = consumer_behaviors)) +
+  geom_point(color = "darkviolet", alpha = 0.5) +
+  stat_smooth(method = "glm", method.args = list(family = "binomial")) +
+  labs(x = "Biospheric Values (Centered)",
+       y = "Pro-Environmental Consumer Behaviors") +
+  theme_bw() +
+  text_settings
+```
+
+## Notes
+
+* As participants' endorsement of biospheric values increase, so did their probability of choosing the pro-environmental consumer behavior option, even while controlling for the effects of each intervention.
+
+
+# Main Effect of Egoistic Values {.tabset .tabset-pill}
+
+## Visualization
+```{r warning = FALSE, echo = FALSE}
+ggplot(data, aes(x = egoistic_center, y = consumer_behaviors)) +
+  geom_point(color = "darkorange", alpha = 0.5) +
+  stat_smooth(method = "glm", method.args = list(family = "binomial")) +
+  labs(x = "Egoistic Values (Centered)",
+       y = "Pro-Environmental Consumer Behaviors") +
+  theme_bw() +
+  text_settings
+```
+
+## Notes
+
+* As participants' endorsement of egoistic values increase, their probability of choosing the pro-environmental consumer behavior option decreased, even while controlling for the effects of each intervention.
+
