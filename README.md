@@ -3,4 +3,4 @@ A logistic regression analysis performed to examine the effects of two psycholog
 
 See full analysis here: https://sluopsy.github.io/Logistic-Regression-Analysis/
 
-![](https://github.com/sluopsy/images/blob/main/logistic-regression-ss.png?raw=true)
+[![logistic-regression](https://github.com/sluopsy/images/blob/main/logistic-regression-ss.png?raw=true)](https://sluopsy.github.io/Logistic-Regression-Analysis/)
